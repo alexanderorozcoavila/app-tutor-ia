@@ -63,7 +63,8 @@ export const CapturaEvidencia: React.FC<Props> = ({tarea, onCancelar, onExito}) 
     }
     setSubiendo(true);
     try {
-      await uploadEvidencia(tarea.id, tarea.assigned_to, fotoPath);
+      const planificadaId = tarea.metadata?.planificada_id as string | undefined;
+      await uploadEvidencia(tarea.id, tarea.assigned_to, fotoPath, planificadaId);
       onExito(); // Vuelve al Dashboard con tarea ya completada
     } catch (error) {
       console.error('[Evidencia] Error al subir:', error);

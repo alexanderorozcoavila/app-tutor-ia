@@ -31,16 +31,15 @@ export const TIPO_LABELS: Record<Tarea['type'], string> = {
 };
 
 /**
- * Obtiene las tareas pendientes o rechazadas del alumno.
- * Solo retorna tareas con supported_devices que incluya 'mobile'.
+ * Obtiene TODAS las tareas del alumno (pendientes, completadas, aprobadas, rechazadas).
+ * No omite por supported_devices, ya que queremos mostrar todo en el listado,
+ * pero la UI de detalle filtrará qué acciones se pueden hacer.
  *
  * Tabla: tasks
  * Filtros:
  *   - assigned_to = alumnoId
- *   - status IN ('pending', 'rejected')
- *   - supported_devices @> '{mobile}'  (contiene 'mobile')
  */
-export const getTareasPendientes = async (alumnoId: string): Promise<Tarea[]> => {
+export const getTodasTareas = async (alumnoId: string): Promise<Tarea[]> => {
   if (!alumnoId) {
     console.warn('[Tareas] alumnoId vacío, abortando consulta.');
     return [];
@@ -50,8 +49,6 @@ export const getTareasPendientes = async (alumnoId: string): Promise<Tarea[]> =>
     .from('tasks')
     .select('id, title, description, type, status, score, reason_not_done, metadata, assigned_to, created_by, supported_devices, created_at')
     .eq('assigned_to', alumnoId)
-    .in('status', ['pending', 'rejected'])
-    .contains('supported_devices', ['mobile'])
     .order('created_at', {ascending: false});
 
   if (error) {
@@ -62,10 +59,82 @@ export const getTareasPendientes = async (alumnoId: string): Promise<Tarea[]> =>
 };
 
 /**
+ * Requisito: Si hay plan semanal activo, mostrar las tareas de HOY. 
+ * Si no hay, null para que la vista use getTodasTareas() libre.
+ */
+export const getPlanSemanalYBaseTasksHoy = async (alumnoId: string): Promise<Tarea[] | null> => {
+  if (!alumnoId) return null;
+
+  const hoy = new Date();
+  const diaSemana = hoy.getDay(); 
+  const diasDesdeElLunes = diaSemana === 0 ? 6 : diaSemana - 1;
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - diasDesdeElLunes);
+  const fechaLunes = lunes.toISOString().split('T')[0];
+
+  // 1. Obtener plan semanal activo
+  const {data: planData, error: planError} = await supabase
+    .from('plan_semanal')
+    .select('id')
+    .eq('alumno_id', alumnoId)
+    .eq('fecha_inicio', fechaLunes)
+    .single();
+
+  if (planError || !planData) {
+    return null; // Fallback
+  }
+
+  // 2. Tareas planificadas de HOY
+  // 0=Lunes ... 6=Domingo en nuestra convención de UI
+  const {data: planTareas} = await supabase
+    .from('tarea_planificada')
+    .select('id, modulo_id, estado, puntos_valor')
+    .eq('plan_semanal_id', planData.id)
+    .eq('dia_semana', diaSemana);
+
+  if (!planTareas || planTareas.length === 0) {
+    return []; // Plan existe pero sin tareas hoy -> Día libre
+  }
+
+  const ids = planTareas.map(t => t.modulo_id);
+
+  // 3. Buscar las tareas reales basadas en los UUIDs
+  const {data: tasksData} = await supabase
+    .from('tasks')
+    .select('id, title, description, type, status, score, reason_not_done, metadata, assigned_to, created_by, supported_devices, created_at')
+    .in('id', ids);
+
+  if (!tasksData) return [];
+
+  // Mapear los estados del plan para que la aplicación móvil visualice correctamente si la completó desde la web
+  const enrichedTasks = planTareas.map(pt => {
+    const baseTask = tasksData.find(t => t.id === pt.modulo_id);
+    if (!baseTask) return null;
+
+    // En el modo "plan", el estado prioritario lo dicta tarea_planificada.estado
+    // Si estado en planilla es "completada" o "en_revision", para la app será 'completed' (hiding buttons)
+    // Guardamos el pt.id en metadata para procesarlo al completarlo.
+    const mappedStatus = (pt.estado === 'completada' || pt.estado === 'en_revision') ? 'completed' : 'pending';
+
+    return {
+      ...baseTask,
+      status: mappedStatus as Tarea['status'],
+      score: pt.puntos_valor,
+      metadata: {
+        ...(baseTask.metadata || {}),
+        planificada_id: pt.id
+      }
+    };
+  }).filter(Boolean) as Tarea[];
+
+  return enrichedTasks;
+};
+
+/**
  * Marca una tarea como completada.
  * El tutor luego la aprueba o rechaza desde el sistema web.
  */
-export const marcarTareaCompletada = async (tareaId: string): Promise<void> => {
+export const marcarTareaCompletada = async (tareaId: string, planificadaId?: string): Promise<void> => {
   const {error} = await supabase
     .from('tasks')
     .update({status: 'completed'})
@@ -73,6 +142,17 @@ export const marcarTareaCompletada = async (tareaId: string): Promise<void> => {
 
   if (error) {
     throw new Error(`Error al actualizar tarea: ${error.message}`);
+  }
+
+  // Si existe un id de plan, sincronizar el estado global con el sistema principal
+  if (planificadaId) {
+    await supabase
+      .from('tarea_planificada')
+      .update({
+        estado: 'completada',
+        fecha_completado: new Date().toISOString()
+      })
+      .eq('id', planificadaId);
   }
 };
 

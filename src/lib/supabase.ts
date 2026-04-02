@@ -2,10 +2,11 @@ import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import * as Keychain from 'react-native-keychain';
 
+import { SUPABASE_URL as ENV_URL, SUPABASE_ANON_KEY as ENV_KEY } from '@env';
+
 // ─── Variables de entorno (definidas en .env) ─────────────────────────────
-// IMPORTANTE: Copiar del .env del proyecto web app-tutor-ia
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = ENV_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = ENV_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 // ─── Adaptador de almacenamiento seguro (Android Keystore) ───────────────
 // No usar AsyncStorage (texto plano). Keychain cifra con el chip de seguridad.

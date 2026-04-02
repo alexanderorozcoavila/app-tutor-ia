@@ -77,7 +77,8 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
           onPress: async () => {
             setCompletando(true);
             try {
-              await completarTareaSinFoto(tarea.id);
+              const planificadaId = tarea.metadata?.planificada_id as string | undefined;
+              await completarTareaSinFoto(tarea.id, planificadaId);
               showToast();
             } catch (error) {
               Alert.alert('Error', 'No se pudo marcar la tarea.');
@@ -139,6 +140,9 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
   const typeLabel = (TIPO_LABELS[tarea.type] ?? tarea.type).toUpperCase();
   const xp = MC_XP_BY_TYPE[tarea.type] || 50;
 
+  const canComplete = tarea.type === 'domestic' && (tarea.supported_devices || []).includes('mobile') && tarea.status !== 'completed' && tarea.status !== 'approved';
+  const canUploadEvidence = tarea.status === 'completed';
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -194,14 +198,24 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
 
         {/* Acciones */}
         <View style={styles.actions}>
-          <McButton variant="blue" icon="📸" onPress={iniciarCamara} fullWidth>
-            CAPTURAR EVIDENCIA
-          </McButton>
-          <View style={{height: 16}} />
-          <McButton variant="green" icon="✅" disabled={completando} onPress={handleCompletarSinFoto} fullWidth subtitle="No requiere foto">
-            {completando ? '...' : 'MISIÓN COMPLETADA'}
-          </McButton>
-          <View style={{height: 16}} />
+          {canUploadEvidence && (
+            <>
+              <McButton variant="blue" icon="📸" onPress={iniciarCamara} fullWidth subtitle="Enviar foto terminada">
+                CAPTURAR EVIDENCIA
+              </McButton>
+              <View style={{height: 16}} />
+            </>
+          )}
+          
+          {canComplete && (
+            <>
+              <McButton variant="green" icon="✅" disabled={completando} onPress={handleCompletarSinFoto} fullWidth subtitle="No requiere foto">
+                {completando ? '...' : 'MISIÓN COMPLETADA'}
+              </McButton>
+              <View style={{height: 16}} />
+            </>
+          )}
+
           <McButton variant="gray" onPress={onVolver} fullWidth>
             VOLVER AL INVENTARIO
           </McButton>

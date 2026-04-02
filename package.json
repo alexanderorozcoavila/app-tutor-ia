@@ -12,6 +12,7 @@
   "dependencies": {
     "@react-native/new-app-screen": "0.84.1",
     "@supabase/supabase-js": "^2.101.1",
+    "buffer": "^6.0.3",
     "react": "19.2.3",
     "react-native": "0.84.1",
     "react-native-fs": "^2.20.0",

@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
   Animated,
 } from 'react-native';
-import {getTareasPendientes, Tarea, TIPO_LABELS} from '../services/tareas';
+import {getTodasTareas, getPlanSemanalYBaseTasksHoy, Tarea, TIPO_LABELS} from '../services/tareas';
 import {TutorEnforcer} from '../native/TutorEnforcer';
 import {validateEscapePin} from '../services/pinService';
 
@@ -32,10 +32,31 @@ interface Props {
 export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modoPlan, setModoPlan] = useState(false);
 
   // Stats y XP
-  const [completadasCount, setCompletadasCount] = useState(0); // Dummy por ahora
-  const currentXp = useMemo(() => completadasCount * 130 + 130, [completadasCount]);
+  const { xpTotal, xpObtenida, nivel, medalla } = useMemo(() => {
+    let xpT = 0;
+    let xpO = 0;
+    tareas.forEach(t => {
+      const px = MC_XP_BY_TYPE[t.type] || 50;
+      xpT += px;
+      if (t.status === 'completed' || t.status === 'approved') {
+        xpO += px;
+      }
+    });
+
+    let porcentaje = xpT > 0 ? (xpO / xpT) * 100 : 0;
+    let n = 0;
+    let m = '🥉';
+    if (porcentaje >= 100) { n = 3; m = '🏆'; }
+    else if (porcentaje >= 90) { n = 2; m = '🥇'; }
+    else if (porcentaje >= 80) { n = 1; m = '🥈'; }
+
+    return { xpTotal: xpT, xpObtenida: xpO, nivel: n, medalla: m };
+  }, [tareas]);
+  
+  const completadasCount = tareas.filter(t => t.status === 'completed' || t.status === 'approved').length;
   
   // Escape modal
   const [tapCount, setTapCount] = useState(0);
@@ -70,10 +91,18 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
   const fetchTareas = async () => {
     setLoading(true);
     try {
-      const data = await getTareasPendientes(alumnoId);
-      setTareas(data);
-      // Dummy logic: si no tenemos endpoint de métricas, ponemos 3 completadas
-      setCompletadasCount(3);
+      const planTasks = await getPlanSemanalYBaseTasksHoy(alumnoId);
+      if (planTasks !== null) {
+        // null = No hay plan
+        // [] = Hay plan, pero hoy no hay tareas (día libre)
+        setTareas(planTasks);
+        setModoPlan(true);
+      } else {
+        // Fallback: modo libre
+        const data = await getTodasTareas(alumnoId);
+        setTareas(data);
+        setModoPlan(false);
+      }
     } catch (error) {
       console.error('[Dashboard] Error al cargar tareas:', error);
       Alert.alert('Error', 'No se pudieron cargar las tareas.');
@@ -83,7 +112,7 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
   };
 
   const openWhatsApp = async () => {
-    const url = 'whatsapp://app';
+    const url = 'whatsapp://send?text=Hola%20profesor';
     const supported = await Linking.canOpenURL(url);
     if (supported) {
       await Linking.openURL(url);
@@ -134,9 +163,15 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
   };
 
   const renderTarea = ({item}: {item: Tarea}) => {
-    const isUrgent = item.status === 'rejected'; // Ejemplo: rechazadas son urgentes
+    const isUrgent = item.status === 'rejected';
+    const isCompleted = item.status === 'completed' || item.status === 'approved';
+    const isPendingApproval = item.status === 'completed'; // Si se quiere ser más específico
+
     const tCol = MC_TASK_COLORS[item.type] || MC_TASK_COLORS.reading;
-    const emoji = MC_TASK_EMOJI[item.type] || '📚';
+    
+    // Mismo emoji base que antes
+    const emoji = isUrgent ? '⚠️' : MC_TASK_EMOJI[item.type] || '📚';
+    
     const xp = MC_XP_BY_TYPE[item.type] || 50;
     const typeLabel = (TIPO_LABELS[item.type] ?? item.type).toUpperCase();
 
@@ -155,28 +190,36 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
         })
       : tCol.shadow;
 
+    let currentBgColor = MC_COLORS.bgGrass;
+    if (isUrgent) currentBgColor = MC_COLORS.bgUrgent;
+    else if (isCompleted) currentBgColor = '#2d4d2d'; // Pasto oscurecido
+
     return (
       <TouchableOpacity activeOpacity={0.8} onPress={() => onSelectTarea(item)}>
-        <Animated.View style={{marginBottom: 10}}>
+        <Animated.View style={{marginBottom: 10, opacity: isCompleted ? 0.75 : 1}}>
           <PixelBlock
-            bg={isUrgent ? MC_COLORS.bgUrgent : MC_COLORS.bgGrass}
-            light={MC_COLORS.borderGrassLight}
-            shadow={MC_COLORS.borderGrassShadow}
+            bg={currentBgColor}
+            light={isCompleted ? '#3d6d3d' : MC_COLORS.borderGrassLight}
+            shadow={isCompleted ? '#1a2a1a' : MC_COLORS.borderGrassShadow}
             style={[
               styles.taskBlockContainer,
               { borderTopColor: borderColor, borderLeftColor: borderColor, borderRightColor: shadowColor, borderBottomColor: shadowColor } as any
             ]}>
             
-            {isUrgent && <Text style={styles.urgentTag}>! URGENTE</Text>}
+            {isUrgent && <Text style={styles.urgentTag}>! CORREGIR</Text>}
+            {isPendingApproval && <Text style={[styles.urgentTag, {backgroundColor: '#f39c12', borderColor: '#e67e22', color: '#fff'}]}>EN REVISIÓN</Text>}
+            {!isPendingApproval && item.status === 'approved' && <Text style={[styles.urgentTag, {backgroundColor: '#27ae60', borderColor: '#2ecc71', color: '#fff'}]}>APROBADA</Text>}
             
-            <View style={styles.taskCheckbox} />
+            <View style={[styles.taskCheckbox, isCompleted && {backgroundColor: MC_COLORS.textGreenBright, borderColor: '#fff'}]}>
+              {isCompleted && <Text style={{color: '#fff', fontSize: 12, textAlign: 'center'}}>✓</Text>}
+            </View>
 
             <View style={styles.taskIconBlock}>
               <Text style={{fontSize: 16}}>{emoji}</Text>
             </View>
 
             <View style={styles.taskContent}>
-              <Text style={styles.taskTitle}>{item.title}</Text>
+              <Text style={[styles.taskTitle, isCompleted && {textDecorationLine: 'line-through'}]}>{item.title}</Text>
               <Text style={styles.taskMeta}>📍 {typeLabel}</Text>
             </View>
 
@@ -194,27 +237,32 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
         <SkyBackground playerName="Alumno" lives={5} />
       </TouchableOpacity>
 
-      <XpBar current={currentXp} max={1000} />
+      <XpBar current={xpObtenida} max={xpTotal || 1000} />
 
       {/* Estadísticas */}
       <View style={styles.statsRow}>
-        <StatBlock>
+        <StatBlock style={{flex: 1}}>
           <Text style={styles.statNum}>{completadasCount}</Text>
-          <Text style={styles.statLabel}>completadas</Text>
+          <Text style={styles.statLabel}>COMPLETADAS</Text>
         </StatBlock>
-        <StatBlock>
-          <Text style={styles.statNum}>{tareas.length}</Text>
-          <Text style={styles.statLabel}>pendientes</Text>
+        <StatBlock style={{flex: 1}}>
+          <Text style={styles.statNum}>{tareas.length - completadasCount}</Text>
+          <Text style={styles.statLabel}>PENDIENTES</Text>
         </StatBlock>
-        <StatBlock>
-          <Text style={styles.statNum}>🏆 5</Text>
-          <Text style={styles.statLabel}>logros</Text>
+        <StatBlock style={{flex: 1}}>
+          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Text style={{fontSize: 18}}>{medalla} </Text>
+            <Text style={styles.statNum}>Nv.{nivel}</Text>
+          </View>
+          <Text style={styles.statLabel}>LOGRO DEL DÍA</Text>
         </StatBlock>
       </View>
 
       <View style={styles.sectionHeader}>
         <View style={styles.sectionIcon} />
-        <Text style={styles.sectionTitle}>MISIONES DEL DÍA</Text>
+        <Text style={styles.sectionTitle}>
+          {modoPlan ? 'MISIONES DE HOY (PLAN SEMANAL)' : 'MISIONES DISPONIBLES'}
+        </Text>
       </View>
 
       {/* Lista de Misiones */}
@@ -229,7 +277,9 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyEmoji}>🎉</Text>
-              <Text style={styles.emptyTitle}>¡TODO COMPLETADO!</Text>
+              <Text style={styles.emptyTitle}>
+                {modoPlan ? '¡DÍA LIBRE!' : '¡TODO COMPLETADO!'}
+              </Text>
             </View>
           }
           refreshing={loading}

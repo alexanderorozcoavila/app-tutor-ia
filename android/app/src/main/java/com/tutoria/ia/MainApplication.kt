@@ -1,4 +1,4 @@
-package com.tutoriamobile
+package com.tutoria.ia
 
 import android.app.Application
 import com.facebook.react.PackageList
@@ -14,8 +14,8 @@ class MainApplication : Application(), ReactApplication {
       context = applicationContext,
       packageList =
         PackageList(this).packages.apply {
-          // Packages that cannot be autolinked yet can be added manually here, for example:
-          // add(MyReactNativePackage())
+          // Packages que no pueden ser autolinked se añaden aquí
+          add(TutorEnforcerPackage())  // Bridge nativo: EnforcerService + permisos
         },
     )
   }

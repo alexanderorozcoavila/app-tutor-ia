@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
+import android.app.role.RoleManager
+import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -115,6 +117,71 @@ class TutorEnforcerModule(reactContext: ReactApplicationContext) :
             promise.resolve("Service Stopped")
         } catch (e: Exception) {
             promise.reject("SERVICE_STOP_ERROR", e.message)
+        }
+    }
+
+    // ─── Fase 5: Modo Escape ───────────────────────────────────────────────
+
+    @ReactMethod
+    fun disableLauncherAndExit(promise: Promise) {
+        try {
+            // 1. Detener el servicio
+            val intentService = Intent(reactApplicationContext, EnforcerService::class.java)
+            reactApplicationContext.stopService(intentService)
+
+            // 2. Abrir Settings para cambiar launcher
+            val intentSettings = Intent(Settings.ACTION_HOME_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactApplicationContext.startActivity(intentSettings)
+
+            // 3. Cerrar la app
+            reactApplicationContext.currentActivity?.finishAffinity()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("DISABLE_LAUNCHER_ERROR", e.message)
+        }
+    }
+
+    // ─── Fase 6: Verificación de Launcher ─────────────────────────────────
+
+    @ReactMethod
+    fun isDefaultLauncher(promise: Promise) {
+        try {
+            val isDefault = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = reactApplicationContext.getSystemService(RoleManager::class.java)
+                roleManager?.isRoleHeld(RoleManager.ROLE_HOME) ?: false
+            } else {
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                }
+                val resolveInfo = reactApplicationContext.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                resolveInfo?.activityInfo?.packageName == reactApplicationContext.packageName
+            }
+            promise.resolve(isDefault)
+        } catch (e: Exception) {
+            promise.reject("IS_DEFAULT_LAUNCHER_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun requestDefaultLauncher(promise: Promise) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = reactApplicationContext.getSystemService(RoleManager::class.java)
+                val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_HOME)
+                if (intent != null) {
+                    reactApplicationContext.currentActivity?.startActivityForResult(intent, 1001)
+                }
+            } else {
+                val intent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                reactApplicationContext.startActivity(intent)
+            }
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("REQUEST_DEFAULT_LAUNCHER_ERROR", e.message)
         }
     }
 }

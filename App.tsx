@@ -7,7 +7,9 @@ import {LoginScreen} from './src/screens/LoginScreen';
 import {PermissionsScreen} from './src/screens/PermissionsScreen';
 import {Dashboard} from './src/screens/Dashboard';
 import {TareaDetalleScreen} from './src/screens/TareaDetalleScreen';
+import {LauncherSetupScreen} from './src/screens/LauncherSetupScreen';
 import {Tarea} from './src/services/tareas';
+import {TutorEnforcer} from './src/native/TutorEnforcer';
 
 /**
  * Flujo de navegación de la app:
@@ -23,6 +25,7 @@ import {Tarea} from './src/services/tareas';
  */
 type AppScreen =
   | 'loading'
+  | 'launcherSetup'
   | 'firstLaunch'
   | 'login'
   | 'permissions'
@@ -40,6 +43,15 @@ const App = () => {
 
   const initApp = async () => {
     try {
+      // 0. ¿Está configurada como launcher predeterminado?
+      if (TutorEnforcer.isDefaultLauncher) {
+        const isDefault = await TutorEnforcer.isDefaultLauncher();
+        if (!isDefault) {
+          setScreen('launcherSetup');
+          return;
+        }
+      }
+
       // 1. ¿El admin ya configuró el PIN de escape?
       const setupDone = await isSetupComplete();
       if (!setupDone) {
@@ -74,6 +86,20 @@ const App = () => {
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#3B82F6" />
       </View>
+    );
+  }
+
+  // ─── Verificación de Launcher ────────────────────────────────────────────
+
+  if (screen === 'launcherSetup') {
+    return (
+      <LauncherSetupScreen
+        checking={false}
+        onCheckAgain={() => {
+          setScreen('loading');
+          setTimeout(initApp, 500); // Pequeño delay de gracia
+        }}
+      />
     );
   }
 

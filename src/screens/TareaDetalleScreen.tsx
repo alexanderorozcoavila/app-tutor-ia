@@ -9,6 +9,7 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import {useCameraPermission} from 'react-native-vision-camera';
 import {Tarea, TIPO_LABELS} from '../services/tareas';
@@ -17,31 +18,41 @@ import {completarTareaSinFoto} from '../services/evidencias';
 import {validateEscapePin} from '../services/pinService';
 import {TutorEnforcer} from '../native/TutorEnforcer';
 
+import {MC_COLORS, MC_FONTS, MC_TASK_COLORS, MC_TASK_EMOJI, MC_XP_BY_TYPE} from '../theme/minecraft';
+import {PixelBlock, InvSlot} from '../components/minecraft/PixelBlock';
+import {McButton} from '../components/minecraft/McButton';
+
 interface Props {
   tarea: Tarea;
   onVolver: () => void;
 }
 
-/**
- * Pantalla de detalle de tarea.
- * Permite:
- *  - Ver instrucciones de la tarea
- *  - Tomar foto de evidencia y marcar como completada
- *  - Completar la tarea sin foto (para tareas domésticas, etc.)
- *  - Acceso de administrador (7 taps en el título → PIN → detiene el kiosk)
- */
 export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
   const {hasPermission, requestPermission} = useCameraPermission();
   const [modoCamara, setModoCamara] = useState(false);
   const [completando, setCompletando] = useState(false);
 
-  // ─── Estado del modal de escape admin ────────────────────────────────────
+  // Modal Admin
   const [tapCount, setTapCount] = useState(0);
   const [showEscapeModal, setShowEscapeModal] = useState(false);
   const [escapePin, setEscapePin] = useState('');
   const [stopping, setStopping] = useState(false);
 
-  // ─── Cámara ───────────────────────────────────────────────────────────────
+  // Toast Animado (+XP)
+  const [toastVisible, setToastVisible] = useState(false);
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+
+  const showToast = () => {
+    setToastVisible(true);
+    Animated.sequence([
+      Animated.timing(fadeAnim, {toValue: 1, duration: 300, useNativeDriver: true}),
+      Animated.delay(2000),
+      Animated.timing(fadeAnim, {toValue: 0, duration: 300, useNativeDriver: true}),
+    ]).start(() => {
+      setToastVisible(false);
+      onVolver();
+    });
+  };
 
   const iniciarCamara = async () => {
     let granted = hasPermission;
@@ -49,16 +60,11 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
       granted = await requestPermission();
     }
     if (!granted) {
-      Alert.alert(
-        'Permiso Denegado',
-        'Se necesita acceso a la cámara para subir la evidencia de la tarea.',
-      );
+      Alert.alert('Permiso Denegado', 'Se necesita acceso a la cámara.');
       return;
     }
     setModoCamara(true);
   };
-
-  // ─── Completar sin foto ───────────────────────────────────────────────────
 
   const handleCompletarSinFoto = () => {
     Alert.alert(
@@ -72,13 +78,9 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
             setCompletando(true);
             try {
               await completarTareaSinFoto(tarea.id);
-              Alert.alert(
-                '¡Excelente! 🎉',
-                '¡Tarea completada! Sigue así.',
-                [{text: 'Volver', onPress: onVolver}],
-              );
+              showToast();
             } catch (error) {
-              Alert.alert('Error', 'No se pudo marcar la tarea. Verifica tu conexión.');
+              Alert.alert('Error', 'No se pudo marcar la tarea.');
               console.error('[TareaDetalle] Error:', error);
             } finally {
               setCompletando(false);
@@ -88,8 +90,6 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
       ],
     );
   };
-
-  // ─── Tap secreto en badge → acceso admin ─────────────────────────────────
 
   const handleSecretTap = () => {
     const next = tapCount + 1;
@@ -105,19 +105,21 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
     setStopping(true);
     const isValid = await validateEscapePin(escapePin);
     if (isValid) {
-      await TutorEnforcer.stopService();
       setShowEscapeModal(false);
-      Alert.alert(
-        'Modo Estudio Desactivado 🔓',
-        'El modo kiosk fue detenido. Puedes usar el dispositivo libremente.\n\nAbre Tutor IA nuevamente para reactivarlo.',
-      );
+      if ((TutorEnforcer as any).disableLauncherAndExit) {
+        Alert.alert('Modo Estudio Desactivado 🔓', 'Aplicando desactivación...');
+        setTimeout(async () => {
+          await (TutorEnforcer as any).disableLauncherAndExit();
+        }, 1200);
+      } else {
+        await TutorEnforcer.stopService();
+        Alert.alert('Desactivado', 'El modo kiosk fue detenido.');
+      }
     } else {
-      Alert.alert('PIN incorrecto', 'El PIN ingresado no es válido. Inténtalo de nuevo.');
+      Alert.alert('PIN incorrecto', 'Inténtalo de nuevo.');
     }
     setStopping(false);
   };
-
-  // ─── Modo cámara activo ───────────────────────────────────────────────────
 
   if (modoCamara) {
     return (
@@ -126,83 +128,103 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
         onCancelar={() => setModoCamara(false)}
         onExito={() => {
           setModoCamara(false);
-          Alert.alert('¡Tarea enviada! 🎉', 'Tu evidencia fue recibida. ¡Buen trabajo!', [
-            {text: 'Volver', onPress: onVolver},
-          ]);
+          showToast();
         }}
       />
     );
   }
 
-  const tipoColor = getTipoColor(tarea.type);
-  const tipoLabel = TIPO_LABELS[tarea.type] ?? tarea.type;
+  const tCol = MC_TASK_COLORS[tarea.type] || MC_TASK_COLORS.reading;
+  const emoji = MC_TASK_EMOJI[tarea.type] || '📚';
+  const typeLabel = (TIPO_LABELS[tarea.type] ?? tarea.type).toUpperCase();
+  const xp = MC_XP_BY_TYPE[tarea.type] || 50;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* Header Bloque Tipo (7 taps) */}
+        <TouchableOpacity activeOpacity={1} onPress={handleSecretTap}>
+          <PixelBlock
+            bg={MC_COLORS.bgWood}
+            light={MC_COLORS.borderWoodLight}
+            shadow={MC_COLORS.borderWoodShadow}
+            style={styles.headerBlock}>
+            <View style={[styles.badge, {backgroundColor: tCol.bg, borderColor: tCol.light}]}>
+              <Text style={{color: MC_COLORS.textWhite, fontSize: 16}}>{emoji}</Text>
+            </View>
+            <Text style={styles.headerText}>{typeLabel}</Text>
+          </PixelBlock>
+        </TouchableOpacity>
 
-      {/* Badge de tipo — 7 taps activan el modo escape admin */}
-      <TouchableOpacity activeOpacity={1} onPress={handleSecretTap}>
-        <View style={[styles.tipoBadge, {backgroundColor: tipoColor + '22'}]}>
-          <Text style={[styles.tipoText, {color: tipoColor}]}>
-            {getTipoEmoji(tarea.type)}  {tipoLabel.toUpperCase()}
-          </Text>
+        {/* Título de misión */}
+        <Text style={styles.title}>{tarea.title}</Text>
+
+        {/* Recompensa */}
+        <View style={styles.xpRow}>
+          <Text style={styles.xpText}>RECOMPENSA MENTAL: </Text>
+          <Text style={styles.xpValue}>+{xp} XP</Text>
         </View>
-      </TouchableOpacity>
 
-      {/* Título */}
-      <Text style={styles.title}>{tarea.title}</Text>
+        {/* Banner Urgente / Rechazada */}
+        {tarea.status === 'rejected' && (
+          <PixelBlock
+            bg={MC_COLORS.bgUrgent}
+            light={MC_COLORS.borderUrgentLight}
+            shadow={MC_COLORS.borderUrgentShadow}
+            style={styles.rejectedBanner}>
+            <Text style={styles.rejectedIcon}>⚠️</Text>
+            <View style={{flex: 1}}>
+              <Text style={styles.rejectedTitle}>¡MISIÓN RECHAZADA!</Text>
+              {tarea.reason_not_done ? (
+                <Text style={styles.rejectedReason}>{tarea.reason_not_done}</Text>
+              ) : null}
+            </View>
+          </PixelBlock>
+        )}
 
-      {/* Instrucciones */}
-      <View style={styles.instruccionesCard}>
-        <Text style={styles.instruccionesLabel}>📋 Instrucciones</Text>
-        <Text style={styles.instruccionesText}>
-          {tarea.description ?? 'Sin instrucciones adicionales.'}
-        </Text>
-      </View>
-
-      {/* Banner de rechazada (si aplica) */}
-      {tarea.status === 'rejected' && (
-        <View style={styles.rejectedBanner}>
-          <Text style={styles.rejectedIcon}>⚠️</Text>
-          <View style={{flex: 1}}>
-            <Text style={styles.rejectedTitle}>Tarea rechazada</Text>
-            {tarea.reason_not_done ? (
-              <Text style={styles.rejectedReason}>{tarea.reason_not_done}</Text>
-            ) : null}
+        {/* Detalles / Inventario style */}
+        <PixelBlock bg="#333333" light="#555555" shadow="#1a1a1a" style={styles.instructionsContainer}>
+          <View style={styles.instructionsHeader}>
+            <Text style={styles.instructionsTitle}>INSTRUCCIONES DEL MAPA</Text>
           </View>
+          <Text style={styles.instructionsText}>
+            {tarea.description ?? 'Explora y descubre el objetivo...'}
+          </Text>
+        </PixelBlock>
+
+        {/* Acciones */}
+        <View style={styles.actions}>
+          <McButton variant="blue" icon="📸" onPress={iniciarCamara} fullWidth>
+            CAPTURAR EVIDENCIA
+          </McButton>
+          <View style={{height: 16}} />
+          <McButton variant="green" icon="✅" disabled={completando} onPress={handleCompletarSinFoto} fullWidth subtitle="No requiere foto">
+            {completando ? '...' : 'MISIÓN COMPLETADA'}
+          </McButton>
+          <View style={{height: 16}} />
+          <McButton variant="gray" onPress={onVolver} fullWidth>
+            VOLVER AL INVENTARIO
+          </McButton>
         </View>
+      </ScrollView>
+
+      {/* Toast MC */}
+      {toastVisible && (
+        <Animated.View style={[styles.toastContainer, {opacity: fadeAnim}]}>
+          <PixelBlock bg={MC_COLORS.textGold} light="#FFFF55" shadow="#885500" borderWidth={4} style={styles.toastBlock}>
+            <Text style={styles.toastEmoji}>🎉</Text>
+            <Text style={styles.toastText}>¡MISIÓN COMPLETADA!</Text>
+            <Text style={styles.toastXp}>+{xp} XP</Text>
+          </PixelBlock>
+        </Animated.View>
       )}
 
-      {/* Botón de evidencia fotográfica */}
-      <TouchableOpacity style={styles.cameraButton} onPress={iniciarCamara}>
-        <Text style={styles.cameraButtonText}>📸  Tomar foto de evidencia</Text>
-      </TouchableOpacity>
-
-      {/* Botón de completar sin foto */}
-      <TouchableOpacity
-        style={[styles.doneButton, completando && styles.buttonDisabled]}
-        onPress={handleCompletarSinFoto}
-        disabled={completando}>
-        {completando ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.doneButtonText}>✅  Marcar como completada</Text>
-        )}
-      </TouchableOpacity>
-
-      {/* Botón de regreso */}
-      <TouchableOpacity style={styles.backButton} onPress={onVolver}>
-        <Text style={styles.backButtonText}>← Volver al inicio</Text>
-      </TouchableOpacity>
-
-      {/* ─── Modal de escape para administrador ─── */}
+      {/* Modal Admin */}
       <Modal visible={showEscapeModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>🔓 Acceso de Administrador</Text>
-            <Text style={styles.modalDesc}>
-              Ingresa el PIN para desactivar el modo estudio
-            </Text>
+          <PixelBlock bg="#1E293B" light="#334155" shadow="#0F172A" style={styles.modalCard}>
+            <Text style={styles.modalTitle}>🔓 ACCESO ADMIN</Text>
+            <Text style={styles.modalDesc}>El administrador debe ingresar el PIN</Text>
             <TextInput
               style={styles.modalInput}
               value={escapePin}
@@ -214,175 +236,174 @@ export const TareaDetalleScreen: React.FC<Props> = ({tarea, onVolver}) => {
               placeholderTextColor="#64748B"
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalBtn, {backgroundColor: '#475569'}]}
-                onPress={() => setShowEscapeModal(false)}>
-                <Text style={styles.modalBtnText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, {backgroundColor: '#EF4444'}]}
-                onPress={handleEscapeValidate}
-                disabled={stopping}>
-                {stopping ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text style={styles.modalBtnText}>Confirmar</Text>
-                )}
-              </TouchableOpacity>
+              <McButton variant="gray" onPress={() => setShowEscapeModal(false)}>CANCELAR</McButton>
+              <View style={{width: 10}} />
+              <McButton variant="red" disabled={stopping} onPress={handleEscapeValidate}>
+                {stopping ? '...' : 'DESBLOQUEAR'}
+              </McButton>
             </View>
-          </View>
+          </PixelBlock>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const getTipoColor = (type: string): string => {
-  const colors: Record<string, string> = {
-    reading:    '#8B5CF6',
-    dictation:  '#3B82F6',
-    domestic:   '#10B981',
-    assessment: '#F59E0B',
-  };
-  return colors[type.toLowerCase()] ?? '#64748B';
-};
-
-const getTipoEmoji = (type: string): string => {
-  const emojis: Record<string, string> = {
-    reading:    '📖',
-    dictation:  '✏️',
-    domestic:   '🏠',
-    assessment: '📝',
-  };
-  return emojis[type.toLowerCase()] ?? '📚';
-};
-
-// ─── Estilos ──────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: '#F1F5F9'},
-  content: {padding: 24, paddingTop: 48, paddingBottom: 48},
-  tipoBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    marginBottom: 16,
-  },
-  tipoText: {fontSize: 12, fontWeight: '800', letterSpacing: 0.5},
-  title: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#0F172A',
-    lineHeight: 34,
-    marginBottom: 24,
-  },
-  instruccionesCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  instruccionesLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748B',
-    marginBottom: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  instruccionesText: {fontSize: 17, color: '#1E293B', lineHeight: 28},
-  rejectedBanner: {
+  container: {flex: 1, backgroundColor: MC_COLORS.bgDark},
+  content: {padding: 20, paddingTop: 40, paddingBottom: 40},
+  headerBlock: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
-    padding: 14,
+    alignItems: 'center',
+    padding: 10,
     marginBottom: 20,
     gap: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: '#EF4444',
   },
-  rejectedIcon: {fontSize: 20},
-  rejectedTitle: {fontSize: 14, fontWeight: '700', color: '#DC2626', marginBottom: 2},
-  rejectedReason: {fontSize: 13, color: '#9B1C1C', lineHeight: 18},
-  cameraButton: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 14,
-    padding: 18,
+  badge: {
+    width: 32, height: 32,
+    borderWidth: 2,
     alignItems: 'center',
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: '#3B82F6',
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    justifyContent: 'center',
   },
-  cameraButtonText: {color: '#FFFFFF', fontSize: 16, fontWeight: '700'},
-  doneButton: {
-    backgroundColor: '#10B981',
-    borderRadius: 14,
-    padding: 18,
+  headerText: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 12,
+    color: MC_COLORS.textYellow,
+  },
+  title: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 16,
+    color: MC_COLORS.textWhite,
+    lineHeight: 24,
+    marginBottom: 10,
+  },
+  xpRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 24,
+  },
+  xpText: {
+    fontFamily: MC_FONTS.mono,
+    fontSize: 20,
+    color: MC_COLORS.textMuted,
+  },
+  xpValue: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 10,
+    color: MC_COLORS.textGold,
+  },
+  rejectedBanner: {
+    flexDirection: 'row',
+    padding: 12,
     marginBottom: 20,
-    elevation: 2,
-    shadowColor: '#10B981',
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    gap: 10,
+    alignItems: 'center',
   },
-  buttonDisabled: {opacity: 0.6},
-  doneButtonText: {color: '#FFFFFF', fontSize: 16, fontWeight: '700'},
-  backButton: {padding: 14, alignItems: 'center'},
-  backButtonText: {color: '#64748B', fontSize: 15, fontWeight: '600'},
-  // Modal de escape
+  rejectedIcon: {fontSize: 24},
+  rejectedTitle: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 10,
+    color: MC_COLORS.textYellow,
+    marginBottom: 4,
+  },
+  rejectedReason: {
+    fontFamily: MC_FONTS.mono,
+    fontSize: 18,
+    color: MC_COLORS.textWhite,
+  },
+  instructionsContainer: {
+    padding: 16,
+    marginBottom: 30,
+  },
+  instructionsHeader: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#222222',
+    paddingBottom: 8,
+    marginBottom: 16,
+  },
+  instructionsTitle: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 10,
+    color: MC_COLORS.textMuted,
+  },
+  instructionsText: {
+    fontFamily: MC_FONTS.mono,
+    fontSize: 22,
+    color: MC_COLORS.textWhite,
+    lineHeight: 28,
+  },
+  actions: {
+    gap: 16,
+  },
+  toastContainer: {
+    position: 'absolute',
+    top: '40%',
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  toastBlock: {
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowOffset: {width: 5, height: 5},
+    shadowRadius: 0,
+  },
+  toastEmoji: {
+    fontSize: 40,
+    marginBottom: 10,
+  },
+  toastText: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 10,
+    color: MC_COLORS.bgDark,
+    marginBottom: 10,
+  },
+  toastXp: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 14,
+    color: '#1a4a1a',
+  },
+  // Modal Admin
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'center',
-    padding: 28,
+    padding: 24,
   },
   modalCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 20,
-    padding: 28,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#F8FAFC',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  modalDesc: {
-    fontSize: 14,
-    color: '#94A3B8',
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 20,
-  },
-  modalInput: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 22,
-    letterSpacing: 10,
-    textAlign: 'center',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  modalButtons: {flexDirection: 'row', gap: 12},
-  modalBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
+    padding: 24,
     alignItems: 'center',
   },
-  modalBtnText: {color: '#FFFFFF', fontWeight: '700', fontSize: 15},
+  modalTitle: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 12,
+    color: MC_COLORS.textWhite,
+    marginBottom: 10,
+  },
+  modalDesc: {
+    fontFamily: MC_FONTS.mono,
+    fontSize: 16,
+    color: MC_COLORS.textMuted,
+    marginBottom: 20,
+  },
+  modalInput: {
+    backgroundColor: MC_COLORS.bgDark,
+    color: MC_COLORS.textWhite,
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 18,
+    textAlign: 'center',
+    padding: 12,
+    width: '100%',
+    borderWidth: 2,
+    borderColor: MC_COLORS.borderStoneLight,
+    marginBottom: 20,
+    letterSpacing: 10,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    width: '100%',
+  },
 });

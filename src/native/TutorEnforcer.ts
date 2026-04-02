@@ -37,4 +37,19 @@ export const TutorEnforcer = {
   stopService: (): Promise<string> => {
     return TutorEnforcerModule.stopEnforcerService();
   },
+
+  /** Fase 5: Detiene el kiosk, abre configuración de launcher y cierra la app. */
+  disableLauncherAndExit: (): Promise<void> => {
+    return TutorEnforcerModule.disableLauncherAndExit();
+  },
+
+  /** Fase 6: Retorna true si somos el launcher por defecto. */
+  isDefaultLauncher: (): Promise<boolean> => {
+    return TutorEnforcerModule.isDefaultLauncher();
+  },
+
+  /** Fase 6: Abre el diálogo para configurar como launcher. */
+  requestDefaultLauncher: (): Promise<void> => {
+    return TutorEnforcerModule.requestDefaultLauncher();
+  },
 };

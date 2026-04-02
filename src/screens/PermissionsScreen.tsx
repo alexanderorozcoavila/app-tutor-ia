@@ -2,7 +2,6 @@ import React, {useEffect, useState} from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   AppState,
   ScrollView,
@@ -10,15 +9,15 @@ import {
 } from 'react-native';
 import {TutorEnforcer, PermissionStatus} from '../native/TutorEnforcer';
 
+import {MC_COLORS, MC_FONTS} from '../theme/minecraft';
+import {PixelBlock} from '../components/minecraft/PixelBlock';
+import {McButton} from '../components/minecraft/McButton';
+import {SkyBackground} from '../components/minecraft/SkyBackground';
+
 interface Props {
   onPermissionsGranted: () => void;
 }
 
-/**
- * Pantalla de barrera de permisos.
- * Bloquea el acceso al Dashboard hasta que el SO haya concedido
- * SYSTEM_ALERT_WINDOW y PACKAGE_USAGE_STATS.
- */
 export const PermissionsScreen: React.FC<Props> = ({onPermissionsGranted}) => {
   const [status, setStatus] = useState<PermissionStatus>({
     hasOverlay: false,
@@ -43,7 +42,6 @@ export const PermissionsScreen: React.FC<Props> = ({onPermissionsGranted}) => {
   };
 
   useEffect(() => {
-    // Verificar al montar y cada vez que el usuario vuelve de Ajustes
     const subscription = AppState.addEventListener('change', nextState => {
       if (nextState === 'active') {
         checkStatus();
@@ -56,44 +54,51 @@ export const PermissionsScreen: React.FC<Props> = ({onPermissionsGranted}) => {
 
   if (checking) {
     return (
-      <View style={[styles.container, {justifyContent: 'center'}]}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+      <View style={[styles.container, {justifyContent: 'center', alignItems: 'center'}]}>
+        <ActivityIndicator size="large" color={MC_COLORS.textGreenBright} />
       </View>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>⚙️ Configuración Requerida</Text>
-      <Text style={styles.subtitle}>
-        Para activar el modo estudio, el administrador debe autorizar los
-        siguientes permisos especiales en este dispositivo.
-      </Text>
+    <View style={styles.container}>
+      <SkyBackground />
 
-      <PermissionItem
-        label="1. Superposición de Apps"
-        description="Permite mostrar la pantalla de bloqueo sobre otras apps."
-        granted={status.hasOverlay}
-        onPress={TutorEnforcer.requestOverlayPermission}
-      />
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        <PixelBlock bg="#1E293B" light="#334155" shadow="#0F172A" style={styles.card}>
+          <Text style={styles.title}>⚙️ PERMISOS DE SISTEMA</Text>
+          <Text style={styles.subtitle}>
+            El administrador debe autorizar estos accesos para que EduCraft funcione correctamente.
+          </Text>
 
-      <PermissionItem
-        label="2. Acceso a Datos de Uso"
-        description="Permite detectar qué app está abierta en pantalla."
-        granted={status.hasUsageStats}
-        onPress={TutorEnforcer.requestUsageStatsPermission}
-      />
+          <PermissionItem
+            label="SUPERPOSICIÓN"
+            description="Mostrar UI sobre otras apps."
+            granted={status.hasOverlay}
+            onPress={TutorEnforcer.requestOverlayPermission}
+          />
 
-      <TouchableOpacity style={styles.refreshButton} onPress={checkStatus}>
-        <Text style={styles.refreshText}>🔄  Verificar permisos</Text>
-      </TouchableOpacity>
+          <PermissionItem
+            label="ACCESO A DATOS"
+            description="Detectar qué app está activa."
+            granted={status.hasUsageStats}
+            onPress={TutorEnforcer.requestUsageStatsPermission}
+          />
 
-      {status.allGranted && (
-        <View style={styles.successBanner}>
-          <Text style={styles.successText}>✅ ¡Todo listo! Iniciando...</Text>
-        </View>
-      )}
-    </ScrollView>
+          <View style={{height: 10}} />
+
+          {status.allGranted ? (
+            <PixelBlock bg={MC_COLORS.bgGrassDark} light={MC_COLORS.borderGrassLight} shadow="#0d1f06" style={{padding: 10, alignItems: 'center'}}>
+              <Text style={styles.successText}>✅ ¡MUNDO GENERADO!</Text>
+            </PixelBlock>
+          ) : (
+            <McButton variant="gray" onPress={checkStatus} fullWidth subtitle="Comprobar accesos">
+              VERIFICAR PERMISOS
+            </McButton>
+          )}
+        </PixelBlock>
+      </ScrollView>
+    </View>
   );
 };
 
@@ -108,74 +113,76 @@ const PermissionItem = ({
   granted: boolean;
   onPress: () => Promise<boolean>;
 }) => (
-  <View style={[styles.permItem, granted && styles.permItemGranted]}>
+  <PixelBlock
+    bg={granted ? MC_COLORS.bgGrassDark : MC_COLORS.bgDark}
+    light={granted ? MC_COLORS.borderGrassLight : MC_COLORS.borderStoneLight}
+    shadow={granted ? MC_COLORS.borderGrassShadow : MC_COLORS.borderStoneShadow}
+    style={styles.permItem}>
     <View style={styles.permInfo}>
       <Text style={styles.permLabel}>{granted ? '✅' : '⚠️'} {label}</Text>
       <Text style={styles.permDesc}>{description}</Text>
     </View>
     {!granted && (
-      <TouchableOpacity style={styles.permButton} onPress={onPress}>
-        <Text style={styles.permButtonText}>Autorizar</Text>
-      </TouchableOpacity>
+      <View style={{width: 120}}>
+        <McButton variant="blue" onPress={onPress}>
+          AUTORIZAR
+        </McButton>
+      </View>
     )}
-  </View>
+  </PixelBlock>
 );
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: MC_COLORS.bgDark,
+  },
+  scrollContainer: {
     flexGrow: 1,
-    backgroundColor: '#0F172A',
     padding: 24,
-    paddingTop: 60,
+    paddingTop: 40,
+  },
+  card: {
+    padding: 20,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#F8FAFC',
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 12,
+    color: MC_COLORS.textYellow,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 15,
-    color: '#94A3B8',
+    fontFamily: MC_FONTS.mono,
+    fontSize: 18,
+    color: MC_COLORS.textMuted,
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 32,
+    marginBottom: 24,
   },
   permItem: {
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
     flexDirection: 'row',
+    padding: 14,
+    marginBottom: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#F59E0B33',
   },
-  permItemGranted: {borderColor: '#10B981'},
-  permInfo: {flex: 1, marginRight: 12},
-  permLabel: {color: '#F8FAFC', fontWeight: '700', fontSize: 15, marginBottom: 4},
-  permDesc: {color: '#94A3B8', fontSize: 13, lineHeight: 18},
-  permButton: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
+  permInfo: {
+    flex: 1,
+    marginRight: 10,
   },
-  permButtonText: {color: '#FFFFFF', fontWeight: '700', fontSize: 13},
-  refreshButton: {
-    alignSelf: 'center',
-    marginTop: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+  permLabel: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 8,
+    color: MC_COLORS.textWhite,
+    marginBottom: 6,
   },
-  refreshText: {color: '#3B82F6', fontSize: 15, fontWeight: '600'},
-  successBanner: {
-    backgroundColor: '#064E3B',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 16,
+  permDesc: {
+    fontFamily: MC_FONTS.mono,
+    fontSize: 16,
+    color: '#CBD5E1',
   },
-  successText: {color: '#10B981', fontSize: 16, fontWeight: '700'},
+  successText: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 12,
+    color: MC_COLORS.textGreenBright,
+  },
 });

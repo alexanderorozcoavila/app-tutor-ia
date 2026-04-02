@@ -3,24 +3,22 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import {saveEscapePin} from '../services/pinService';
+
+import {MC_COLORS, MC_FONTS} from '../theme/minecraft';
+import {PixelBlock} from '../components/minecraft/PixelBlock';
+import {McButton} from '../components/minecraft/McButton';
 
 interface Props {
   onSetupComplete: () => void;
 }
 
-/**
- * Pantalla que se muestra UNA SOLA VEZ al instalar la app.
- * El administrador define el PIN de escape de 4-6 dígitos.
- * Una vez guardado, no vuelve a aparecer nunca.
- */
 export const FirstLaunchSetupScreen: React.FC<Props> = ({onSetupComplete}) => {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -48,108 +46,110 @@ export const FirstLaunchSetupScreen: React.FC<Props> = ({onSetupComplete}) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <View style={styles.card}>
-        <Text style={styles.emoji}>🔐</Text>
-        <Text style={styles.title}>Configuración Inicial</Text>
-        <Text style={styles.subtitle}>
-          Define el PIN de emergencia para que los administradores puedan
-          desactivar el modo estudio cuando sea necesario.
-        </Text>
+    <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled">
+          
+          <PixelBlock bg="#1E293B" light="#334155" shadow="#0F172A" style={styles.card}>
+            <Text style={styles.emoji}>🔐</Text>
+            <Text style={styles.title}>CONFIGURACIÓN INICIAL</Text>
+            <Text style={styles.subtitle}>
+              Define el PIN de administrador para poder salir del modo EduCraft de ser necesario.
+            </Text>
 
-        <Text style={styles.label}>PIN de Escape (4-6 dígitos)</Text>
-        <TextInput
-          style={styles.input}
-          value={pin}
-          onChangeText={setPin}
-          keyboardType="numeric"
-          secureTextEntry
-          maxLength={6}
-          placeholder="••••••"
-          placeholderTextColor="#64748B"
-        />
+            <Text style={styles.label}>NUEVO PIN (4-6 DÍGITOS)</Text>
+            <TextInput
+              style={styles.input}
+              value={pin}
+              onChangeText={setPin}
+              keyboardType="numeric"
+              secureTextEntry
+              maxLength={6}
+              placeholder="••••••"
+              placeholderTextColor="#64748B"
+            />
 
-        <Text style={styles.label}>Confirmar PIN</Text>
-        <TextInput
-          style={styles.input}
-          value={confirmPin}
-          onChangeText={setConfirmPin}
-          keyboardType="numeric"
-          secureTextEntry
-          maxLength={6}
-          placeholder="••••••"
-          placeholderTextColor="#64748B"
-        />
+            <Text style={styles.label}>CONFIRMAR PIN</Text>
+            <TextInput
+              style={styles.input}
+              value={confirmPin}
+              onChangeText={setConfirmPin}
+              keyboardType="numeric"
+              secureTextEntry
+              maxLength={6}
+              placeholder="••••••"
+              placeholderTextColor="#64748B"
+            />
 
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleSavePin}
-          disabled={loading}>
-          {loading ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.buttonText}>Guardar y Continuar</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+            <View style={{height: 10}} />
+
+            <McButton variant="green" onPress={handleSavePin} loading={loading} fullWidth>
+              EL PIN ESTÁ SEGURO
+            </McButton>
+          </PixelBlock>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: MC_COLORS.bgDark,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
   },
   card: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
     padding: 28,
   },
-  emoji: {fontSize: 48, textAlign: 'center', marginBottom: 16},
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#F8FAFC',
+  emoji: {
+    fontSize: 48,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  title: {
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 12,
+    color: MC_COLORS.textWhite,
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 18,
   },
   subtitle: {
-    fontSize: 15,
-    color: '#94A3B8',
+    fontFamily: MC_FONTS.mono,
+    fontSize: 18,
+    color: MC_COLORS.textMuted,
     textAlign: 'center',
-    lineHeight: 22,
     marginBottom: 28,
   },
   label: {
-    fontSize: 14,
-    color: '#CBD5E1',
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 8,
+    color: MC_COLORS.textWhite,
     marginBottom: 8,
-    fontWeight: '600',
   },
   input: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    borderRadius: 10,
+    backgroundColor: MC_COLORS.bgDark,
+    color: MC_COLORS.textWhite,
+    borderRadius: 0,
     padding: 14,
-    fontSize: 20,
+    fontFamily: MC_FONTS.pixel,
+    fontSize: 16,
     letterSpacing: 8,
     textAlign: 'center',
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
+    borderWidth: 2,
+    borderColor: MC_COLORS.borderStoneLight,
   },
-  button: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  buttonDisabled: {backgroundColor: '#1D4ED8'},
-  buttonText: {color: '#FFFFFF', fontSize: 16, fontWeight: '700'},
 });

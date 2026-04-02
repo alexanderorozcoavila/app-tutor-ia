@@ -3,30 +3,54 @@ import {View, Text, StyleSheet, Animated} from 'react-native';
 import {MC_COLORS, MC_FONTS} from '../../theme/minecraft';
 
 interface Props {
-  current: number;   // XP actual
-  max: number;       // XP para siguiente nivel (1000)
+  current: number;   // XP aprobada
+  pending?: number;  // XP en revisión
+  max: number;       // XP para meta total (e.g. 1000)
 }
 
 /**
  * Barra de XP de aprendizaje estilo Minecraft.
  * Verde brillante, pixelada, con label arriba y texto de progreso abajo.
  */
-export const XpBar: React.FC<Props> = ({current, max}) => {
+export const XpBar: React.FC<Props> = ({current, pending = 0, max}) => {
   const widthAnim = useRef(new Animated.Value(0)).current;
+  const pendingWidthAnim = useRef(new Animated.Value(0)).current;
+  
   const pct = Math.min(1, current / max);
+  const pendingPct = Math.min(1, (current + pending) / max);
 
   useEffect(() => {
-    Animated.timing(widthAnim, {
-      toValue: pct,
-      duration: 600,
-      useNativeDriver: false,
-    }).start();
-  }, [pct, widthAnim]);
+    Animated.parallel([
+      Animated.timing(widthAnim, {
+        toValue: pct,
+        duration: 600,
+        useNativeDriver: false,
+      }),
+      Animated.timing(pendingWidthAnim, {
+        toValue: pendingPct,
+        duration: 800,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [pct, pendingPct, widthAnim, pendingWidthAnim]);
 
   return (
     <View style={styles.container}>
       <Text style={styles.label}>XP DE APRENDIZAJE</Text>
       <View style={styles.barBg}>
+        {/* Barra de XP Pendiente (En revisión) - Verde pálido */}
+        <Animated.View
+          style={[
+            styles.barPending,
+            {
+              width: pendingWidthAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '100%'],
+              }),
+            },
+          ]}
+        />
+        {/* Barra de XP Aprobada - Verde brillante */}
         <Animated.View
           style={[
             styles.barFill,
@@ -37,12 +61,11 @@ export const XpBar: React.FC<Props> = ({current, max}) => {
               }),
             },
           ]}>
-          {/* Brillo en la parte superior */}
           <View style={styles.barShine} />
         </Animated.View>
       </View>
       <Text style={styles.xpText}>
-        {current} / {max} XP
+        {current}{pending > 0 ? ` (+${pending}?)` : ''} / {max} XP
       </Text>
     </View>
   );
@@ -79,6 +102,18 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: MC_COLORS.textGreenBright,
     overflow: 'hidden',
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    zIndex: 2,
+  },
+  barPending: {
+    height: '100%',
+    backgroundColor: '#3a7a3a', // Verde oscuro/apagado para lo que está en revisión
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    zIndex: 1,
   },
   barShine: {
     position: 'absolute',

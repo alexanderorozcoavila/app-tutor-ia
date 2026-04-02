@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
   Animated,
 } from 'react-native';
-import {getTodasTareas, getPlanSemanalYBaseTasksHoy, Tarea, TIPO_LABELS} from '../services/tareas';
+import {getTodasTareas, getPlanSemanalYBaseTasksHoy, getHistorialDiarioHoy, Tarea, TIPO_LABELS} from '../services/tareas';
 import {TutorEnforcer} from '../native/TutorEnforcer';
 import {validateEscapePin} from '../services/pinService';
 
@@ -33,30 +33,52 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [loading, setLoading] = useState(true);
   const [modoPlan, setModoPlan] = useState(false);
+  const [metaPuntos, setMetaPuntos] = useState(100);
+  const [dailyLevelOverride, setDailyLevelOverride] = useState<number | null>(null);
 
   // Stats y XP
-  const { xpTotal, xpObtenida, nivel, medalla } = useMemo(() => {
-    let xpT = 0;
+  const { xpTotal, xpObtenida, xpEnRevision, nivel, medalla } = useMemo(() => {
+    let xpT = modoPlan ? metaPuntos : 0;
+    let xpHoyTotal = 0;
     let xpO = 0;
+    let xpR = 0;
+
     tareas.forEach(t => {
-      const px = MC_XP_BY_TYPE[t.type] || 50;
-      xpT += px;
-      if (t.status === 'completed' || t.status === 'approved') {
+      const px = t.score || MC_XP_BY_TYPE[t.type] || 50;
+      if (!modoPlan) xpT += px;
+      xpHoyTotal += px;
+      
+      if (t.status === 'approved') {
         xpO += px;
+      } else if (t.status === 'completed') {
+        xpR += px;
       }
     });
 
-    let porcentaje = xpT > 0 ? (xpO / xpT) * 100 : 0;
-    let n = 0;
-    let m = '🥉';
-    if (porcentaje >= 100) { n = 3; m = '🏆'; }
-    else if (porcentaje >= 90) { n = 2; m = '🥇'; }
-    else if (porcentaje >= 80) { n = 1; m = '🥈'; }
+    if (!modoPlan && xpT === 0) xpT = 100;
 
-    return { xpTotal: xpT, xpObtenida: xpO, nivel: n, medalla: m };
-  }, [tareas]);
+    // Logro diario (Independiente de la meta semanal)
+    // El sistema principal usa el % de puntos de HOY.
+    let n = 0;
+    if (dailyLevelOverride !== null) {
+      n = dailyLevelOverride;
+    } else {
+      const porcentajeHoy = xpHoyTotal > 0 ? (xpO / xpHoyTotal) * 100 : 0;
+      if (porcentajeHoy >= 100) n = 3;
+      else if (porcentajeHoy >= 90) n = 2;
+      else if (porcentajeHoy >= 80) n = 1;
+    }
+
+    let m = '🥉';
+    if (n === 3) m = '🏆';
+    else if (n === 2) m = '🥇';
+    else if (n === 1) m = '🥈';
+
+    return { xpTotal: xpT, xpObtenida: xpO, xpEnRevision: xpR, nivel: n, medalla: m };
+  }, [tareas, modoPlan, metaPuntos, dailyLevelOverride]);
   
-  const completadasCount = tareas.filter(t => t.status === 'completed' || t.status === 'approved').length;
+  const completadasCount = tareas.filter(t => t.status === 'approved').length;
+  const enRevisionCount = tareas.filter(t => t.status === 'completed').length;
   
   // Escape modal
   const [tapCount, setTapCount] = useState(0);
@@ -91,12 +113,17 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
   const fetchTareas = async () => {
     setLoading(true);
     try {
-      const planTasks = await getPlanSemanalYBaseTasksHoy(alumnoId);
-      if (planTasks !== null) {
-        // null = No hay plan
-        // [] = Hay plan, pero hoy no hay tareas (día libre)
-        setTareas(planTasks);
+      const res = await getPlanSemanalYBaseTasksHoy(alumnoId);
+      if (res !== null) {
+        setTareas(res.tareas);
+        setMetaPuntos(res.metaPuntosTotal);
         setModoPlan(true);
+        
+        // Sincronizar nivel diario desde la base de datos
+        const historial = await getHistorialDiarioHoy(res.planId, alumnoId);
+        if (historial) {
+          setDailyLevelOverride(historial.nivel);
+        }
       } else {
         // Fallback: modo libre
         const data = await getTodasTareas(alumnoId);
@@ -172,7 +199,7 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
     // Mismo emoji base que antes
     const emoji = isUrgent ? '⚠️' : MC_TASK_EMOJI[item.type] || '📚';
     
-    const xp = MC_XP_BY_TYPE[item.type] || 50;
+    const xp = item.score || MC_XP_BY_TYPE[item.type] || 50;
     const typeLabel = (TIPO_LABELS[item.type] ?? item.type).toUpperCase();
 
     // Animación de color de borde para urgentes
@@ -237,7 +264,7 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
         <SkyBackground playerName="Alumno" lives={5} />
       </TouchableOpacity>
 
-      <XpBar current={xpObtenida} max={xpTotal || 1000} />
+      <XpBar current={xpObtenida} pending={xpEnRevision} max={xpTotal || 100} />
 
       {/* Estadísticas */}
       <View style={styles.statsRow}>
@@ -246,7 +273,7 @@ export const Dashboard: React.FC<Props> = ({alumnoId, onSelectTarea}) => {
           <Text style={styles.statLabel}>COMPLETADAS</Text>
         </StatBlock>
         <StatBlock style={{flex: 1}}>
-          <Text style={styles.statNum}>{tareas.length - completadasCount}</Text>
+          <Text style={styles.statNum}>{tareas.length - completadasCount - enRevisionCount}</Text>
           <Text style={styles.statLabel}>PENDIENTES</Text>
         </StatBlock>
         <StatBlock style={{flex: 1}}>

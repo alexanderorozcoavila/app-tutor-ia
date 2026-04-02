@@ -58,11 +58,17 @@ export const getTodasTareas = async (alumnoId: string): Promise<Tarea[]> => {
   return (data ?? []) as Tarea[];
 };
 
+export interface PlanHoyRespuesta {
+  planId: string;
+  tareas: Tarea[];
+  metaPuntosTotal: number;
+}
+
 /**
  * Requisito: Si hay plan semanal activo, mostrar las tareas de HOY. 
  * Si no hay, null para que la vista use getTodasTareas() libre.
  */
-export const getPlanSemanalYBaseTasksHoy = async (alumnoId: string): Promise<Tarea[] | null> => {
+export const getPlanSemanalYBaseTasksHoy = async (alumnoId: string): Promise<PlanHoyRespuesta | null> => {
   if (!alumnoId) return null;
 
   const hoy = new Date();
@@ -75,7 +81,7 @@ export const getPlanSemanalYBaseTasksHoy = async (alumnoId: string): Promise<Tar
   // 1. Obtener plan semanal activo
   const {data: planData, error: planError} = await supabase
     .from('plan_semanal')
-    .select('id')
+    .select('id, meta_puntos_total')
     .eq('alumno_id', alumnoId)
     .eq('fecha_inicio', fechaLunes)
     .single();
@@ -93,7 +99,7 @@ export const getPlanSemanalYBaseTasksHoy = async (alumnoId: string): Promise<Tar
     .eq('dia_semana', diaSemana);
 
   if (!planTareas || planTareas.length === 0) {
-    return []; // Plan existe pero sin tareas hoy -> Día libre
+    return { planId: planData.id, tareas: [], metaPuntosTotal: planData.meta_puntos_total }; // Plan existe pero sin tareas hoy -> Día libre
   }
 
   const ids = planTareas.map(t => t.modulo_id);
@@ -104,7 +110,7 @@ export const getPlanSemanalYBaseTasksHoy = async (alumnoId: string): Promise<Tar
     .select('id, title, description, type, status, score, reason_not_done, metadata, assigned_to, created_by, supported_devices, created_at')
     .in('id', ids);
 
-  if (!tasksData) return [];
+  if (!tasksData) return { planId: planData.id, tareas: [], metaPuntosTotal: planData.meta_puntos_total };
 
   // Mapear los estados del plan para que la aplicación móvil visualice correctamente si la completó desde la web
   const enrichedTasks = planTareas.map(pt => {
@@ -112,13 +118,16 @@ export const getPlanSemanalYBaseTasksHoy = async (alumnoId: string): Promise<Tar
     if (!baseTask) return null;
 
     // En el modo "plan", el estado prioritario lo dicta tarea_planificada.estado
-    // Si estado en planilla es "completada" o "en_revision", para la app será 'completed' (hiding buttons)
-    // Guardamos el pt.id en metadata para procesarlo al completarlo.
-    const mappedStatus = (pt.estado === 'completada' || pt.estado === 'en_revision') ? 'completed' : 'pending';
+    // Mapeo EXACTO para coincidir con PC (StudentPlanViewer):
+    // 'completada' -> 'approved' (suma puntos)
+    // 'en_revision' -> 'completed' (esperando revisión, no suma)
+    let mappedStatus: Tarea['status'] = 'pending';
+    if (pt.estado === 'completada') mappedStatus = 'approved';
+    else if (pt.estado === 'en_revision') mappedStatus = 'completed';
 
     return {
       ...baseTask,
-      status: mappedStatus as Tarea['status'],
+      status: mappedStatus,
       score: pt.puntos_valor,
       metadata: {
         ...(baseTask.metadata || {}),
@@ -127,7 +136,32 @@ export const getPlanSemanalYBaseTasksHoy = async (alumnoId: string): Promise<Tar
     };
   }).filter(Boolean) as Tarea[];
 
-  return enrichedTasks;
+  return { 
+    planId: planData.id,
+    tareas: enrichedTasks, 
+    metaPuntosTotal: planData.meta_puntos_total 
+  };
+};
+
+/**
+ * Obtiene el registro de historial diario para hoy.
+ */
+export const getHistorialDiarioHoy = async (planId: string, alumnoId: string): Promise<{nivel: number; porcentaje: number} | null> => {
+  const hoy = new Date().getDay();
+  const { data, error } = await supabase
+    .from('historial_diario')
+    .select('nivel_alcanzado, porcentaje_logrado')
+    .eq('plan_semanal_id', planId)
+    .eq('alumno_id', alumnoId)
+    .eq('dia_semana', hoy)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    nivel: data.nivel_alcanzado,
+    porcentaje: data.porcentaje_logrado
+  };
 };
 
 /**
